@@ -25,7 +25,7 @@ commodity = 'RB888';
 Freq = 'M15';
 %load data.mat;
 data =load('rb000_day.csv');
-data_1min = load('rb000_dayfivemin.csv');
+data_1min = load('rb000_dayonehour.csv');
 
 Date=x2mdate(data(:,1),0);    %日期时间
 Open=data(:,2);               %开盘价
@@ -86,6 +86,8 @@ CumRateOfReturn=zeros(length(data_1min),1);         %累计收益率
 CostSeries=zeros(length(data_1min),1);              %记录交易成本
 BackRatio=zeros(length(data_1min),1);               %记录回测比例
 
+CloseLowerDate = zeros(length(data_1min),1);
+
 %记录资产变化变量
 LongMargin=zeros(length(data_1min),1);              %多头保证金
 ShortMargin=zeros(length(data_1min),1);             %空头保证金
@@ -103,7 +105,7 @@ DownLineAll = zeros(length(data),1);
 MAShort(1:ShortLen-1) = Close(1:ShortLen-1);
 MALong(1:LongLen-1) = Close(1:LongLen-1);
 
-CurrentMinBarIndex = 44;
+CurrentMinBarIndex = 6;
 
 %% --策略仿真--
 
@@ -155,10 +157,11 @@ for i=2:length(data)
         end
 
         %Open Long
-        if MarketPosition ~=1 && High_1min(CurrentMinBarIndex) > UpLine
+        if MarketPosition ~=1 && Close_1min(CurrentMinBarIndex) > UpLine
             if MarketPosition == -1
                 MarketPosition = 1;
-                MyEntryPrice(CurrentMinBarIndex) = UpLine; %(UpLine + Close_1min(CurrentMinBarIndex))/2; %Close(i); Close_1min(CurrentMinBarIndex); %
+                ShortMargin(i)=0;   %平空后空头保证金为0了
+                MyEntryPrice(CurrentMinBarIndex) = Close_1min(CurrentMinBarIndex); %(UpLine + Close_1min(CurrentMinBarIndex))/2; %Close(i); Close_1min(CurrentMinBarIndex); %
                 MyEntryPrice(CurrentMinBarIndex)=MyEntryPrice(CurrentMinBarIndex)+Slip*MinMove*PriceScale;%建仓价格(也是平空仓的价格)
                 ClosePosNum=ClosePosNum+1;
                 ClosePosPrice(ClosePosNum)=MyEntryPrice(CurrentMinBarIndex);%记录平仓价格
@@ -186,24 +189,14 @@ for i=2:length(data)
             end
             LongMargin(CurrentMinBarIndex)=Close_1min(CurrentMinBarIndex)*Lots*TradingUnits*MarginRatio;               %多头保证金
             Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex)-LongMargin(CurrentMinBarIndex);
-            
-            
-            
-            if Close_1min(CurrentMinBarIndex) < UpLine
-                
-            end
-            
         end
-
-
         %开空头
         %平多开空
-        if MarketPosition ~=-1 && Low_1min(CurrentMinBarIndex) < DownLine
+        if MarketPosition ~=-1 && Close_1min(CurrentMinBarIndex) < DownLine
             if MarketPosition==1    
                 MarketPosition=-1;
                 LongMargin(CurrentMinBarIndex)=0;     %平多后多头保证金为0了
-
-                MyEntryPrice(CurrentMinBarIndex) = DownLine; %(DownLine+Close_1min(CurrentMinBarIndex))/2;%Close_1min(CurrentMinBarIndex); %
+                MyEntryPrice(CurrentMinBarIndex) = Close_1min(CurrentMinBarIndex); %(DownLine+Close_1min(CurrentMinBarIndex))/2;%Close_1min(CurrentMinBarIndex); %
                 MyEntryPrice(CurrentMinBarIndex)=MyEntryPrice(CurrentMinBarIndex)-Slip*MinMove*PriceScale;%建仓价格(也是平多仓的价格)
                 ClosePosNum=ClosePosNum+1;
                 ClosePosPrice(ClosePosNum)=MyEntryPrice(CurrentMinBarIndex);%记录平仓价格
@@ -220,7 +213,7 @@ for i=2:length(data)
             %空仓开空
             if MarketPosition==0    
                 MarketPosition=-1;
-                MyEntryPrice(CurrentMinBarIndex) =  DownLine; %(DownLine+Close_1min(CurrentMinBarIndex))/2; %Close_1min(CurrentMinBarIndex); %
+                MyEntryPrice(CurrentMinBarIndex) =  Close_1min(CurrentMinBarIndex); %(DownLine+Close_1min(CurrentMinBarIndex))/2; %Close_1min(CurrentMinBarIndex); %
                 MyEntryPrice(CurrentMinBarIndex) = MyEntryPrice(CurrentMinBarIndex)-Slip*MinMove*PriceScale;
                 OpenPosNum=OpenPosNum+1;
                 OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);
@@ -231,6 +224,7 @@ for i=2:length(data)
             end
             ShortMargin(CurrentMinBarIndex)=Close_1min(CurrentMinBarIndex)*Lots*TradingUnits*MarginRatio;
             Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex)-ShortMargin(CurrentMinBarIndex);
+            
         end
 
         %如果最后一个Bar有持仓，则以收盘价平掉
@@ -261,7 +255,7 @@ for i=2:length(data)
                 DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex);%空仓时动态权益和静态权益相等
                 Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex); %空仓时可用资金等于动态权益
             end
-
+            
         end
         pos(CurrentMinBarIndex)=MarketPosition;
         CurrentMinBarIndex = CurrentMinBarIndex+1;
