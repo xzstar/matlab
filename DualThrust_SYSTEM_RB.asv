@@ -125,6 +125,8 @@ for i=LongLen+1:length(data)
         if(High(i)>HH20)
         % ×ö¶à    
             
+            Deal(0) = HH20+Slip*MinMove*PriceScale;
+            
         elseif (Low(i)<LL20)
         % ×ö¿Õ
         
