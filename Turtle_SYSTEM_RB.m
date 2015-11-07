@@ -25,7 +25,7 @@ commodity = 'RB888';
 Freq = 'M15';
 %load data.mat;
 data =load('rb000_day.csv');
-%data_1min = load('rb000_dayfivemin.csv');
+data_1min = load('rb000_dayfivemin.csv');
 
 Date=x2mdate(data(:,1),0);    %日期时间
 Open=data(:,2);               %开盘价
@@ -34,11 +34,11 @@ Low=data(:,4);                %最低价
 Close=data(:,5);              %收盘价
 Volume=data(:,6);             %成交量
 OpenInterest=data(:,7);       %持仓量
-%Date_1min = x2mdate(data_1min(:,1),0);
+Date_1min = x2mdate(data_1min(:,1),0);
 %Date_1min=datenum(data_1min(:,1),'yyyymmddHHMM'); 
-%High_1min = data_1min(:,3);
-%Low_1min = data_1min(:,4);
-%Close_1min = data_1min(:,5);
+High_1min = data_1min(:,3);
+Low_1min = data_1min(:,4);
+Close_1min = data_1min(:,5);
 %% --定义参数（常量）--
 
 %策略参数
@@ -69,31 +69,31 @@ RiskLess=0.035;                               %无风险收益率(计算夏普比率时需要)
 
 
 %交易记录变量
-MyEntryPrice=zeros(length(data),1);            %买卖价格
+MyEntryPrice=zeros(length(data_1min),1);            %买卖价格
 MarketPosition=0;                              %仓位状态，-1表示持有空头，0表示无持仓，1表示持有多头
-pos=zeros(length(data),1);                     %记录仓位情况，-1表示持有空头，0表示无持仓，1表示持有多头
-Type=zeros(length(data),1);                    %买卖类型，1标示多头，-1标示空头
-OpenPosPrice=zeros(length(data),1);            %记录建仓价格
-ClosePosPrice=zeros(length(data),1);           %记录平仓价格
+pos=zeros(length(data_1min),1);                     %记录仓位情况，-1表示持有空头，0表示无持仓，1表示持有多头
+Type=zeros(length(data_1min),1);                    %买卖类型，1标示多头，-1标示空头
+OpenPosPrice=zeros(length(data_1min),1);            %记录建仓价格
+ClosePosPrice=zeros(length(data_1min),1);           %记录平仓价格
 OpenPosNum=0;                                  %建仓价格序号
 ClosePosNum=0;                                 %平仓价格序号
-OpenDate=zeros(length(data),1);            %建仓时间
-CloseDate=zeros(length(data),1);           %平仓时间
-NetMargin=zeros(length(data),1);               %净利
-CumNetMargin=zeros(length(data),1);            %累计净利
-RateOfReturn=zeros(length(data),1);            %收益率
-CumRateOfReturn=zeros(length(data),1);         %累计收益率
-CostSeries=zeros(length(data),1);              %记录交易成本
-BackRatio=zeros(length(data),1);               %记录回测比例
+OpenDate=zeros(length(data_1min),1);            %建仓时间
+CloseDate=zeros(length(data_1min),1);           %平仓时间
+NetMargin=zeros(length(data_1min),1);               %净利
+CumNetMargin=zeros(length(data_1min),1);            %累计净利
+RateOfReturn=zeros(length(data_1min),1);            %收益率
+CumRateOfReturn=zeros(length(data_1min),1);         %累计收益率
+CostSeries=zeros(length(data_1min),1);              %记录交易成本
+BackRatio=zeros(length(data_1min),1);               %记录回测比例
 
-CloseLowerDate = zeros(length(data),1);
+CloseLowerDate = zeros(length(data_1min),1);
 
 %记录资产变化变量
-LongMargin=zeros(length(data),1);              %多头保证金
-ShortMargin=zeros(length(data),1);             %空头保证金
-Cash=repmat(1e4,length(data),1);               %可用资金,初始资金为10W
-DynamicEquity=repmat(1e4,length(data),1);      %动态权益,初始资金为10W
-StaticEquity=repmat(1e4,length(data),1);       %静态权益,初始资金为10W
+LongMargin=zeros(length(data_1min),1);              %多头保证金
+ShortMargin=zeros(length(data_1min),1);             %空头保证金
+Cash=repmat(1e4,length(data_1min),1);               %可用资金,初始资金为10W
+DynamicEquity=repmat(1e4,length(data_1min),1);      %动态权益,初始资金为10W
+StaticEquity=repmat(1e4,length(data_1min),1);       %静态权益,初始资金为10W
 
 UpLineAll = zeros(length(data),1);
 DownLineAll = zeros(length(data),1);
@@ -105,24 +105,32 @@ DownLineAll = zeros(length(data),1);
 MAShort(1:ShortLen-1) = Close(1:ShortLen-1);
 MALong(1:LongLen-1) = Close(1:LongLen-1);
 
-CurrentMinBarIndex = 6;
+CurrentMinBarIndex = 818;
 
 %% --策略仿真--
 
-for i=2:length(data)
+for i=21:length(data)
+    
+    HH20 = max(High(i-LongLen:LongLen));
+    HH10 = max(High(i-LongLen+10:LongLen));
+    LL20 = max(Low(i-LongLen:LongLen));
+    LL10 = max(Low(i-LongLen+10:LongLen));
+    atrValue = ATR(High(i-LongLen:LongLen),Low(i-LongLen:LongLen),Close(i-LongLen:LongLen),LongLen,0);
+
+    
     %开仓模块
-    HH = High(i-1);
-    HC = Close(i-1);
-    LC = Close(i-1);
-    LL = Low(i-1);
-    Range = max([HH-LC,HC-LL]);
-    Ks = 0.7;    
-    UpLine = ceil(Open(i)+Range*Ks);
-    DownLine = ceil(Open(i)-Range*Ks);
-    UpLineAll(i) = UpLine;
-    DownLineAll(i)=DownLine;
+%     HH = High(i-1);
+%     HC = Close(i-1);
+%     LC = Close(i-1);
+%     LL = Low(i-1);
+%     Range = max([HH-LC,HC-LL]);
+%     Ks = 0.7;    
+%     UpLine = ceil(Open(i)+Range*Ks);
+%     DownLine = ceil(Open(i)-Range*Ks);
+%     UpLineAll(i) = UpLine;
+%     DownLineAll(i)=DownLine;
     curDay = data(i);
-    curMinBarDay = data(CurrentMinBarIndex);     
+    curMinBarDay = data_1min(CurrentMinBarIndex);     
     
     isSameDay = 0;
     
@@ -130,12 +138,12 @@ for i=2:length(data)
         isSameDay = 1;
     end
     
-    isNight = 0;
-    if curMinBarDay - floor(curMinBarDay) == 0.875
-        isNight = 1;
-    end
+    %isNight = 0;
+    %if curMinBarDay - floor(curMinBarDay) == 0.875
+    %    isNight = 1;
+    %end
     
-    while (isSameDay ==1) && (CurrentMinBarIndex~=length(data)) 
+    while (isSameDay ==1) && (CurrentMinBarIndex~=length(data_1min)) 
         if MarketPosition==0
             LongMargin(CurrentMinBarIndex)=0;                            %多头保证金
             ShortMargin(CurrentMinBarIndex)=0;                           %空头保证金
@@ -156,8 +164,42 @@ for i=2:length(data)
             Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex)-ShortMargin(CurrentMinBarIndex);
         end
 
+        if MarketPosition==0 
+            if High_1min(CurrentMinBarIndex) > HH20
+                %Open Long
+                MarketPosition = 1;
+                MyEntryPrice(CurrentMinBarIndex)= HH20 + Slip*MinMove*PriceScale;
+                if Open(CurrentMinBarIndex)>MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
+                    MyEntryPrice(CurrentMinBarIndex)=Open(CurrentMinBarIndex)+Slip*MinMove*PriceScale;
+                end
+                OpenPosNum=OpenPosNum+1;
+                OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);%记录开仓价格
+                OpenDate(OpenPosNum)=Date_1min(CurrentMinBarIndex);%记录开仓时间
+                Type(OpenPosNum)=1;   %方向为多头
+                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);
+                DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+(Close_1min(CurrentMinBarIndex)-OpenPosPrice(OpenPosNum))*TradingUnits*Lots;
+            elseif Low_1min(CurrentMinBarIndex) < LL20
+                %Open Short
+                MarketPosition = -1;
+                MyEntryPrice(CurrentMinBarIndex)= LL20 - Slip*MinMove*PriceScale;
+                if Open(CurrentMinBarIndex)< MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
+                    MyEntryPrice(CurrentMinBarIndex)=Open(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
+                end
+                OpenPosNum=OpenPosNum+1;
+                OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);%记录开仓价格
+                OpenDate(OpenPosNum)=Date_1min(CurrentMinBarIndex);%记录开仓时间
+                Type(OpenPosNum)=-1;   %方向为空头
+                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);
+                DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+(OpenPosPrice(OpenPosNum)-Close_1min(CurrentMinBarIndex))*TradingUnits*Lots;
+            end
+        elseif MarketPosition==1
+            
+            
+        end
+        
+        
         %Open Long
-        if MarketPosition ~=1 && Close_1min(CurrentMinBarIndex) > UpLine
+        if MarketPosition ~=1 && High_1min(CurrentMinBarIndex) > UpLine
             if MarketPosition == -1
                 MarketPosition = 1;
                 ShortMargin(i)=0;   %平空后空头保证金为0了
@@ -228,7 +270,7 @@ for i=2:length(data)
         end
 
         %如果最后一个Bar有持仓，则以收盘价平掉
-        if CurrentMinBarIndex==length(data)
+        if CurrentMinBarIndex==length(data_1min)
             %平多
             if MarketPosition==1
                 MarketPosition=0;
@@ -259,7 +301,7 @@ for i=2:length(data)
         end
         pos(CurrentMinBarIndex)=MarketPosition;
         CurrentMinBarIndex = CurrentMinBarIndex+1;
-        curMinBarDay = data(CurrentMinBarIndex);  
+        curMinBarDay = data_1min(CurrentMinBarIndex);  
         if (curDay - floor(curMinBarDay + 0.125)) >=0
             isSameDay = 1;
         else
@@ -299,7 +341,7 @@ CumNetMargin=cumsum(NetMargin);
 CumRateOfReturn=cumsum(RateOfReturn);
 
 %回撤比例
-for i=1:length(data)
+for i=1:length(data_1min)
     c=max(DynamicEquity(1:i));
     if c==DynamicEquity(i)
         BackRatio(i)=0;
