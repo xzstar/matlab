@@ -24,8 +24,8 @@
 commodity = 'RB888';
 Freq = 'M15';
 %load data.mat;
-data =load('rb000_day.csv');
-data_1min = load('rb000_dayfivemin.csv');
+data =load('y9000_day.csv');
+data_1min = load('y9000_dayfivemin.csv');
 
 Date=x2mdate(data(:,1),0);    %日期时间
 Open=data(:,2);               %开盘价
@@ -36,6 +36,7 @@ Volume=data(:,6);             %成交量
 OpenInterest=data(:,7);       %持仓量
 Date_1min = x2mdate(data_1min(:,1),0);
 %Date_1min=datenum(data_1min(:,1),'yyyymmddHHMM'); 
+Open_1min = data_1min(:,2);
 High_1min = data_1min(:,3);
 Low_1min = data_1min(:,4);
 Close_1min = data_1min(:,5);
@@ -53,7 +54,7 @@ LongLen = 20;
 MinMove=1;                                    %商品的最小变动量
 PriceScale=1;                                 %商品的计数单位
 TradingUnits=10;                              %交易单位
-Lots=1;                                       %交易手数
+%Lots=1;                                       %交易手数
 MarginRatio=0.07;                             %保证金率
 TradingCost=0.0003;                           %交易费用设为成交金额的万分之三
 RiskLess=0.035;                               %无风险收益率(计算夏普比率时需要)
@@ -105,21 +106,30 @@ DownLineAll = zeros(length(data),1);
 MAShort(1:ShortLen-1) = Close(1:ShortLen-1);
 MALong(1:LongLen-1) = Close(1:LongLen-1);
 
-CurrentMinBarIndex = 818;
+CurrentMinBarIndex = 0;
 
 QuitPrice = 0;
-
+ATRValue = ATR(High,Low,Close,LongLen,0);
+Lots = 0;
 %% --策略仿真--
+curDay = Date(LongLen+2);
+for i=1:length(Date_1min)
+    curMinBarDay = Date_1min(i);
+    if curDay < curMinBarDay
+        CurrentMinBarIndex = i;
+        break;
+    end
+end
 
-for i=LongLen+1:length(data)
+
+for i=LongLen+2:length(data)
     HH20 = max(High(i-LongLen:i-1));
     HH10 = max(High(i-LongLen+10:i-1));
-    LL20 = max(Low(i-LongLen:i-1));
-    LL10 = max(Low(i-LongLen+10:i-1));
-    ATRValue = ATR(High(i-LongLen:i-1),Low(i-LongLen:i-1),Close(i-LongLen:i-1),LongLen,0);
+    LL20 = min(Low(i-LongLen:i-1));
+    LL10 = min(Low(i-LongLen+10:i-1));
 
-    curDay = data(i);
-    curMinBarDay = data_1min(CurrentMinBarIndex);     
+    curDay = Date(i);
+    curMinBarDay = Date_1min(CurrentMinBarIndex);     
     
     isSameDay = 0;
     
@@ -127,73 +137,41 @@ for i=LongLen+1:length(data)
         isSameDay = 1;
     end
     
-    while (isSameDay ==1) && (CurrentMinBarIndex~=length(data_1min)) 
+    while (isSameDay ==1) && (CurrentMinBarIndex~=length(Date_1min)) 
         if MarketPosition==0
             LongMargin(CurrentMinBarIndex)=0;                            %多头保证金
             ShortMargin(CurrentMinBarIndex)=0;                           %空头保证金
             StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);          %静态权益
             DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex);           %动态权益
             Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex);                   %可用资金
-        end
-        if MarketPosition==1
-            LongMargin(CurrentMinBarIndex)=Close_1min(CurrentMinBarIndex)*Lots*TradingUnits*MarginRatio;
+        
+        elseif MarketPosition==1
+            LongMargin(CurrentMinBarIndex)=Close_1min(CurrentMinBarIndex-1)*Lots*TradingUnits*MarginRatio;
             StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);
             EarnPoint = 0;
             for j=1:Lots
-                 EarnPoint = EarnPoint + Close_1min(CurrentMinBarIndex) - OpenPosPrice(OpenPosNum - j + 1);
+                 EarnPoint = EarnPoint + Close_1min(CurrentMinBarIndex-1) - OpenPosPrice(OpenPosNum - j + 1);
             end
             DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+EarnPoint*TradingUnits;
             Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex)-LongMargin(CurrentMinBarIndex);
-        end
-        if MarketPosition==-1
-            ShortMargin(CurrentMinBarIndex)=Close_1min(CurrentMinBarIndex)*Lots*TradingUnits*MarginRatio;
+        
+        elseif MarketPosition==-1
+            ShortMargin(CurrentMinBarIndex)=Close_1min(CurrentMinBarIndex-1)*Lots*TradingUnits*MarginRatio;
             StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);
             EarnPoint = 0;
             for j=1:Lots
-                 EarnPoint = EarnPoint + OpenPosPrice(OpenPosNum - j + 1)-Close_1min(CurrentMinBarIndex);
+                 EarnPoint = EarnPoint + OpenPosPrice(OpenPosNum - j + 1)-Close_1min(CurrentMinBarIndex-1);
             end
             DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+EarnPoint*TradingUnits;
             Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex)-ShortMargin(CurrentMinBarIndex);
         end
-
-        if MarketPosition==0 
-            if High_1min(CurrentMinBarIndex) > HH20
-                %Open Long
-                MarketPosition = 1;
-                MyEntryPrice(CurrentMinBarIndex)= HH20 + Slip*MinMove*PriceScale;
-                if Open(CurrentMinBarIndex)>MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
-                    MyEntryPrice(CurrentMinBarIndex)=Open(CurrentMinBarIndex)+Slip*MinMove*PriceScale;
-                end
-                OpenPosNum=OpenPosNum+1;
-                OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);%记录开仓价格
-                OpenDate(OpenPosNum)=Date_1min(CurrentMinBarIndex);%记录开仓时间
-                Type(OpenPosNum)=1;   %方向为多头
-                QuitPrice = OpenPosPrice(OpenPosNum) - 2*ATRValue;
-                Lots = 1;
-                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);
-                DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+(Close_1min(CurrentMinBarIndex)-OpenPosPrice(OpenPosNum))*TradingUnits*Lots;
-            elseif Low_1min(CurrentMinBarIndex) < LL20
-                %Open Short
-                MarketPosition = -1;
-                MyEntryPrice(CurrentMinBarIndex)= LL20 - Slip*MinMove*PriceScale;
-                if Open(CurrentMinBarIndex)< MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
-                    MyEntryPrice(CurrentMinBarIndex)=Open(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
-                end
-                OpenPosNum=OpenPosNum+1;
-                OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);%记录开仓价格
-                OpenDate(OpenPosNum)=Date_1min(CurrentMinBarIndex);%记录开仓时间
-                QuitPrice = OpenPosPrice(OpenPosNum) + 2*ATRValue;
-                Type(OpenPosNum)=-1;   %方向为空头
-                Lots = 1;
-                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);
-                EarnPoint = 0;
-                DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+(OpenPosPrice(OpenPosNum)-Close_1min(CurrentMinBarIndex))*TradingUnits*Lots;
-            end
-        elseif MarketPosition==-1
-            if  Lots < 4 && Low_1min(CurrentMinBarIndex) < OpenPosPrice(OpenPosNum) - ATRValue*0.5
-                MyEntryPrice(CurrentMinBarIndex) = OpenPosPrice(OpenPosNum) - ATRValue*0.5  - Slip*MinMove*PriceScale; 
-                if Open(CurrentMinBarIndex)<MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
-                    MyEntryPrice(CurrentMinBarIndex)=Open(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
+    
+    
+        if MarketPosition==-1
+           if  Lots < 4 && Low_1min(CurrentMinBarIndex) < OpenPosPrice(OpenPosNum) - round(ATRValue(i)*0.5)
+                MyEntryPrice(CurrentMinBarIndex) = OpenPosPrice(OpenPosNum) - round(ATRValue(i)*0.5)  - Slip*MinMove*PriceScale; 
+                if Open_1min(CurrentMinBarIndex)<MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
+                    MyEntryPrice(CurrentMinBarIndex)=Open_1min(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
                 end
                 OpenPosNum=OpenPosNum+1;
                 OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);%记录开仓价格
@@ -207,19 +185,20 @@ for i=LongLen+1:length(data)
                     EarnPoint = EarnPoint + OpenPosPrice(OpenPosNum - j + 1)-Close_1min(CurrentMinBarIndex);
                 end
                 DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+EarnPoint*TradingUnits;
-                QuitPrice = QuitPrice - 0.5*ATRValue;
+                QuitPrice = QuitPrice - round(0.5*ATRValue(i));
             end
               
-            if Low_1min(CurrentMinBarIndex)< min(HH10,  QuitPrice)
+            if High_1min(CurrentMinBarIndex)> min(HH10,  QuitPrice)
                 MarketPosition=0;
-                ShortMargin(CurrentMinBarIndex)=0;     %平多后多头保证金为0了
-                ClosePosNum=ClosePosNum+1;
-                ClosePosPrice(ClosePosNum)=min(HH10,  QuitPrice) - Slip*MinMove*PriceScale;%记录平仓价格
-                if Open(CurrentMinBarIndex)< ClosePosPrice(ClosePosNum)    %考虑是否跳空
-                   ClosePosPrice(ClosePosNum)=Open(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
+                ShortMargin(CurrentMinBarIndex)=0;     %平空后空头保证金为0了
+                for j=1:Lots
+                    ClosePosNum=ClosePosNum+1;
+                    ClosePosPrice(ClosePosNum)=min(HH10,  QuitPrice) - Slip*MinMove*PriceScale;%记录平仓价格
+                    if Open_1min(CurrentMinBarIndex)< ClosePosPrice(ClosePosNum)    %考虑是否跳空
+                       ClosePosPrice(ClosePosNum)=Open_1min(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
+                    end
+                    CloseDate(ClosePosNum)=Date_1min(CurrentMinBarIndex);%记录平仓时间
                 end
-                CloseDate(ClosePosNum)=Date_1min(CurrentMinBarIndex);%记录平仓时间
-                
                 EarnPoint = 0;
                 for j=1:Lots
                     EarnPoint = EarnPoint + OpenPosPrice(OpenPosNum - j + 1) - ClosePosPrice(ClosePosNum);
@@ -232,19 +211,53 @@ for i=LongLen+1:length(data)
                 
                 TotalTradingCost = TotalTradingCost + ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;
                 
-                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1)+EarnPoint*TradingUnits-TotalTradingCost;%平多仓时的静态权益，算法参考TB
+                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1)+EarnPoint*TradingUnits-TotalTradingCost;%平空仓时的静态权益，算法参考TB
                 DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex);%空仓时动态权益和静态权益相等
                 Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex); %空仓时可用资金等于动态权益
                 
                 QuitPrice = 0 ;
-                Lots = O;
+                Lots = 0;
+            end
+       
+        elseif MarketPosition==0 
+            if High_1min(CurrentMinBarIndex) > HH20
+                %Open Long
+                MarketPosition = 1;
+                MyEntryPrice(CurrentMinBarIndex)= HH20 + Slip*MinMove*PriceScale;
+                if Open_1min(CurrentMinBarIndex)>MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
+                    MyEntryPrice(CurrentMinBarIndex)=Open_1min(CurrentMinBarIndex)+Slip*MinMove*PriceScale;
+                end
+                OpenPosNum=OpenPosNum+1;
+                OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);%记录开仓价格
+                OpenDate(OpenPosNum)=Date_1min(CurrentMinBarIndex);%记录开仓时间
+                Type(OpenPosNum)=1;   %方向为多头
+                QuitPrice = OpenPosPrice(OpenPosNum) - round(2*ATRValue(i));
+                Lots = 1;
+                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);
+                DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+(Close_1min(CurrentMinBarIndex)-OpenPosPrice(OpenPosNum))*TradingUnits*Lots;
+            elseif Low_1min(CurrentMinBarIndex) < LL20
+                %Open Short
+                MarketPosition = -1;
+                MyEntryPrice(CurrentMinBarIndex)= LL20 - Slip*MinMove*PriceScale;
+                if Open_1min(CurrentMinBarIndex)< MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
+                    MyEntryPrice(CurrentMinBarIndex)=Open_1min(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
+                end
+                OpenPosNum=OpenPosNum+1;
+                OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);%记录开仓价格
+                OpenDate(OpenPosNum)=Date_1min(CurrentMinBarIndex);%记录开仓时间
+                QuitPrice = OpenPosPrice(OpenPosNum) + round(2*ATRValue(i));
+                Type(OpenPosNum)=-1;   %方向为空头
+                Lots = 1;
+                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1);
+                EarnPoint = 0;
+                DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+(OpenPosPrice(OpenPosNum)-Close_1min(CurrentMinBarIndex))*TradingUnits*Lots;
             end
         elseif MarketPosition==1
-            if Lots < 4 && High_1min(CurrentMinBarIndex) > OpenPosPrice(OpenPosNum) + ATRValue*0.5
+            if Lots < 4 && High_1min(CurrentMinBarIndex) > OpenPosPrice(OpenPosNum) + round(ATRValue(i)*0.5)
                 
-                MyEntryPrice(CurrentMinBarIndex) = OpenPosPrice(OpenPosNum) + ATRValue*0.5 +Slip*MinMove*PriceScale; 
-                if Open(CurrentMinBarIndex)>MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
-                    MyEntryPrice(CurrentMinBarIndex)=Open(CurrentMinBarIndex)+Slip*MinMove*PriceScale;
+                MyEntryPrice(CurrentMinBarIndex) = OpenPosPrice(OpenPosNum) + round(ATRValue(i)*0.5) +Slip*MinMove*PriceScale; 
+                if Open_1min(CurrentMinBarIndex)>MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
+                    MyEntryPrice(CurrentMinBarIndex)=Open_1min(CurrentMinBarIndex)+Slip*MinMove*PriceScale;
                 end
                 OpenPosNum=OpenPosNum+1;
                 OpenPosPrice(OpenPosNum)=MyEntryPrice(CurrentMinBarIndex);%记录开仓价格
@@ -256,19 +269,20 @@ for i=LongLen+1:length(data)
                 	EarnPoint = EarnPoint + Close_1min(CurrentMinBarIndex) - OpenPosPrice(OpenPosNum - j + 1);
                 end               
                 DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+EarnPoint*TradingUnits;
-                QuitPrice = QuitPrice + 0.5*ATRValue;
+                QuitPrice = QuitPrice + round(0.5*ATRValue(i));
             end
             
             if Low_1min(CurrentMinBarIndex)< max(LL10,  QuitPrice)
                 MarketPosition=0;
                 LongMargin(CurrentMinBarIndex)=0;     %平多后多头保证金为0了
-                ClosePosNum=ClosePosNum+1;
-                ClosePosPrice(ClosePosNum)=max(LL10,  QuitPrice)- Slip*MinMove*PriceScale;%记录平仓价格
-                if Open(CurrentMinBarIndex)< ClosePosPrice(ClosePosNum)    %考虑是否跳空
-                   ClosePosPrice(ClosePosNum)=Open(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
+                for j=1:Lots
+                    ClosePosNum=ClosePosNum+1;
+                    ClosePosPrice(ClosePosNum)=max(LL10,  QuitPrice)- Slip*MinMove*PriceScale;%记录平仓价格
+                    if Open_1min(CurrentMinBarIndex)< ClosePosPrice(ClosePosNum)    %考虑是否跳空
+                       ClosePosPrice(ClosePosNum)=Open_1min(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
+                    end
+                    CloseDate(ClosePosNum)=Date_1min(CurrentMinBarIndex);%记录平仓时间
                 end
-                CloseDate(ClosePosNum)=Date_1min(CurrentMinBarIndex);%记录平仓时间
-                
                 EarnPoint = 0;
                 for j=1:Lots
                     EarnPoint = EarnPoint + ClosePosPrice(ClosePosNum)-OpenPosPrice(OpenPosNum - j + 1);
@@ -285,81 +299,84 @@ for i=LongLen+1:length(data)
                 DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex);%空仓时动态权益和静态权益相等
                 Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex); %空仓时可用资金等于动态权益
                 QuitPrice = 0 ;
-                Lots = O;
+                Lots = 0;
             end
         
         end
-       
-
-        %如果最后一个Bar有持仓，则以收盘价平掉
-        if CurrentMinBarIndex==length(data_1min)
-            %平多
-            if MarketPosition==1
-                MarketPosition=0;
-                LongMargin(CurrentMinBarIndex)=0; 
-                ClosePosNum=ClosePosNum+1;           
-                ClosePosPrice(ClosePosNum)=Close_1min(CurrentMinBarIndex);%记录平仓价格
-                CloseDate(ClosePosNum)=Date_1min(CurrentMinBarIndex);%记录平仓时间
-                EarnPoint = 0;
-                for j=1:Lots
-                    EarnPoint = EarnPoint + ClosePosPrice(ClosePosNum)-OpenPosPrice(OpenPosNum - j + 1);
-                end
-                
-                TotalTradingCost = 0;
-                for j=1:Lots
-                    TotalTradingCost = TotalTradingCost + OpenPosPrice(OpenPosNum - j + 1)*TradingUnits*TradingCost;
-                end
-                
-                TotalTradingCost = TotalTradingCost + ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;
-                
-                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1)+EarnPoint*TradingUnits - TotalTradingCost;%平多仓时的静态权益，算法参考TB
-                DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex);%空仓时动态权益和静态权益相等
-                Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex); %空仓时可用资金等于动态权益
-            end
-            %平空
-            if MarketPosition==-1
-                MarketPosition=0;
-                ShortMargin(CurrentMinBarIndex)=0;
-                ClosePosNum=ClosePosNum+1;
-                ClosePosPrice(ClosePosNum)=Close_1min(CurrentMinBarIndex);
-                CloseDate(ClosePosNum)=Date_1min(CurrentMinBarIndex);
-                EarnPoint = 0;
-                for j=1:Lots
-                    EarnPoint = EarnPoint + OpenPosPrice(OpenPosNum - j + 1) - ClosePosPrice(ClosePosNum);
-                end
-                
-                TotalTradingCost = 0;
-                for j=1:Lots
-                    TotalTradingCost = TotalTradingCost + OpenPosPrice(OpenPosNum - j + 1)*TradingUnits*TradingCost;
-                end
-                
-                TotalTradingCost = TotalTradingCost + ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;
-                
-                StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1)+EarnPoint*TradingUnits-TotalTradingCost;%平多仓时的静态权益，算法参考TB
-                DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex);%空仓时动态权益和静态权益相等
-                Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex); %空仓时可用资金等于动态权益
-
-            end
-            
-        end
-        pos(CurrentMinBarIndex)=MarketPosition;
+      
+        pos(CurrentMinBarIndex)=MarketPosition*Lots;
         
-        if CurrentMinBarIndex~=length(data_1min)
             CurrentMinBarIndex = CurrentMinBarIndex+1;
-            curMinBarDay = data_1min(CurrentMinBarIndex);  
+            curMinBarDay = Date_1min(CurrentMinBarIndex);  
             if (curDay - floor(curMinBarDay + 0.125)) >=0
                 isSameDay = 1;
             else
                 isSameDay = 0;
             end
-        end
-    end
+        
+     end
     
 end
 
-%% -绩效计算--
+ %如果最后一个Bar有持仓，则以收盘价平掉
+     CurrentMinBarIndex=length(Date_1min);
+    %平多
+    if MarketPosition==1
+        MarketPosition=0;
+        LongMargin(CurrentMinBarIndex)=0; 
+        for j=1:Lots
+            ClosePosNum=ClosePosNum+1;           
+            ClosePosPrice(ClosePosNum)=Close_1min(CurrentMinBarIndex);%记录平仓价格
+            CloseDate(ClosePosNum)=Date_1min(CurrentMinBarIndex);%记录平仓时间
+        end
+        EarnPoint = 0;
+        for j=1:Lots
+            EarnPoint = EarnPoint + ClosePosPrice(ClosePosNum)-OpenPosPrice(OpenPosNum - j + 1);
+        end
 
-RecLength=ClosePosNum;%记录交易长度
+        TotalTradingCost = 0;
+        for j=1:Lots
+            TotalTradingCost = TotalTradingCost + OpenPosPrice(OpenPosNum - j + 1)*TradingUnits*TradingCost;
+        end
+
+        TotalTradingCost = TotalTradingCost + ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;
+
+        StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1)+EarnPoint*TradingUnits - TotalTradingCost;%平多仓时的静态权益，算法参考TB
+        DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex);%空仓时动态权益和静态权益相等
+        Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex); %空仓时可用资金等于动态权益
+    end
+    %平空
+    if MarketPosition==-1
+        MarketPosition=0;
+        ShortMargin(CurrentMinBarIndex)=0;
+        for j=1:Lots
+            ClosePosNum=ClosePosNum+1;
+            ClosePosPrice(ClosePosNum)=Close_1min(CurrentMinBarIndex);
+            CloseDate(ClosePosNum)=Date_1min(CurrentMinBarIndex);
+        end
+        EarnPoint = 0;
+        for j=1:Lots
+            EarnPoint = EarnPoint + OpenPosPrice(OpenPosNum - j + 1) - ClosePosPrice(ClosePosNum);
+        end
+
+        TotalTradingCost = 0;
+        for j=1:Lots
+            TotalTradingCost = TotalTradingCost + OpenPosPrice(OpenPosNum - j + 1)*TradingUnits*TradingCost;
+        end
+
+        TotalTradingCost = TotalTradingCost + ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;
+
+        StaticEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex-1)+EarnPoint*TradingUnits-TotalTradingCost;%平多仓时的静态权益，算法参考TB
+        DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex);%空仓时动态权益和静态权益相等
+        Cash(CurrentMinBarIndex)=DynamicEquity(CurrentMinBarIndex); %空仓时可用资金等于动态权益
+
+    end
+
+
+
+%% -绩效计算--
+Lots = 1;
+RecLength=OpenPosNum;%记录交易长度
 
 %净利润和收益率
 for i=1:RecLength
@@ -421,7 +438,6 @@ YearlyRet=tick2ret(YearlyEquity);
 
 %% 自动创建测试报告(输出到excel)
 %% 输出交易汇总
-Lots = 1;
 TradeSum = cell(25,7);
 
 RowNum = 1;
