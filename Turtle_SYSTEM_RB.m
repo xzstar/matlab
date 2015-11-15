@@ -21,12 +21,11 @@
 % cursor=fetch(cursor);
 % data=cursor.Data;
 
-commodity = 'RB888';
-Freq = 'M15';
+commodity = 'RM000';
+Freq = 'M5';
 %load data.mat;
-data =load('y9000_day.csv');
-data_1min = load('y9000_dayfivemin.csv');
-
+data =load('v9000_day.csv');
+data_1min = load('v9000_dayfivemin.csv');
 Date=x2mdate(data(:,1),0);    %日期时间
 Open=data(:,2);               %开盘价
 High=data(:,3);               %最高价
@@ -58,7 +57,7 @@ TradingUnits=10;                              %交易单位
 MarginRatio=0.07;                             %保证金率
 TradingCost=0.0003;                           %交易费用设为成交金额的万分之三
 RiskLess=0.035;                               %无风险收益率(计算夏普比率时需要)
-
+MaxLots = 4;                                  %最大仓位
 %% --定义变量--
 
 %策略变量
@@ -92,9 +91,9 @@ CloseLowerDate = zeros(length(data_1min),1);
 %记录资产变化变量
 LongMargin=zeros(length(data_1min),1);              %多头保证金
 ShortMargin=zeros(length(data_1min),1);             %空头保证金
-Cash=repmat(1e4,length(data_1min),1);               %可用资金,初始资金为10W
-DynamicEquity=repmat(1e4,length(data_1min),1);      %动态权益,初始资金为10W
-StaticEquity=repmat(1e4,length(data_1min),1);       %静态权益,初始资金为10W
+Cash=repmat(1e6,length(data_1min),1);               %可用资金,初始资金为10W
+DynamicEquity=repmat(1e6,length(data_1min),1);      %动态权益,初始资金为10W
+StaticEquity=repmat(1e6,length(data_1min),1);       %静态权益,初始资金为10W
 
 UpLineAll = zeros(length(data),1);
 DownLineAll = zeros(length(data),1);
@@ -137,7 +136,11 @@ for i=LongLen+2:length(data)
         isSameDay = 1;
     end
     
+  
     while (isSameDay ==1) && (CurrentMinBarIndex~=length(Date_1min)) 
+        if(CurrentMinBarIndex == 101100)
+            needdebug = 1;
+        end
         if MarketPosition==0
             LongMargin(CurrentMinBarIndex)=0;                            %多头保证金
             ShortMargin(CurrentMinBarIndex)=0;                           %空头保证金
@@ -168,7 +171,7 @@ for i=LongLen+2:length(data)
     
     
         if MarketPosition==-1
-           if  Lots < 4 && Low_1min(CurrentMinBarIndex) < OpenPosPrice(OpenPosNum) - round(ATRValue(i)*0.5)
+           if  Lots < MaxLots && Low_1min(CurrentMinBarIndex) < OpenPosPrice(OpenPosNum) - round(ATRValue(i)*0.5)
                 MyEntryPrice(CurrentMinBarIndex) = OpenPosPrice(OpenPosNum) - round(ATRValue(i)*0.5)  - Slip*MinMove*PriceScale; 
                 if Open_1min(CurrentMinBarIndex)<MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
                     MyEntryPrice(CurrentMinBarIndex)=Open_1min(CurrentMinBarIndex) - Slip*MinMove*PriceScale;
@@ -253,7 +256,7 @@ for i=LongLen+2:length(data)
                 DynamicEquity(CurrentMinBarIndex)=StaticEquity(CurrentMinBarIndex)+(OpenPosPrice(OpenPosNum)-Close_1min(CurrentMinBarIndex))*TradingUnits*Lots;
             end
         elseif MarketPosition==1
-            if Lots < 4 && High_1min(CurrentMinBarIndex) > OpenPosPrice(OpenPosNum) + round(ATRValue(i)*0.5)
+            if Lots < MaxLots && High_1min(CurrentMinBarIndex) > OpenPosPrice(OpenPosNum) + round(ATRValue(i)*0.5)
                 
                 MyEntryPrice(CurrentMinBarIndex) = OpenPosPrice(OpenPosNum) + round(ATRValue(i)*0.5) +Slip*MinMove*PriceScale; 
                 if Open_1min(CurrentMinBarIndex)>MyEntryPrice(CurrentMinBarIndex)    %考虑是否跳空
@@ -305,7 +308,9 @@ for i=LongLen+2:length(data)
         end
       
         pos(CurrentMinBarIndex)=MarketPosition*Lots;
-        
+        if(CurrentMinBarIndex>101090)
+            needdebug = 1;
+        end
             CurrentMinBarIndex = CurrentMinBarIndex+1;
             curMinBarDay = Date_1min(CurrentMinBarIndex);  
             if (curDay - floor(curMinBarDay + 0.125)) >=0
@@ -414,8 +419,8 @@ for i=1:length(data_1min)
 end
 
 %日收益率
-Daily=Date_1min(hour(Date_1min)==9  & minute(Date_1min)==0 & second(Date_1min)==0);
-DailyEquity=DynamicEquity(hour(Date_1min)==9  & minute(Date_1min)==0 & second(Date_1min)==0);
+Daily=Date_1min(hour(Date_1min)==9  & minute(Date_1min)==0);
+DailyEquity=DynamicEquity(hour(Date_1min)==9  & minute(Date_1min)==0);
 DailyRet=tick2ret(DailyEquity);
 
 %周收益率
@@ -434,7 +439,11 @@ MonthlyRet=tick2ret(MonthlyEquity);
 YearNum=year(Daily);
 Yearly=[Daily((YearNum(1:end-1)-YearNum(2:end))~=0);Daily(end)];
 YearlyEquity=[DailyEquity((YearNum(1:end-1)-YearNum(2:end))~=0);DailyEquity(end)];
-YearlyRet=tick2ret(YearlyEquity);
+if(isempty(YearlyEquity) || length(YearlyEquity) == 1)
+    YearlyRet = 0;
+else
+    YearlyRet=tick2ret(YearlyEquity);
+end
 
 %% 自动创建测试报告(输出到excel)
 %% 输出交易汇总
