@@ -1,0 +1,17 @@
+function [DateTimeValue,DateTimeFloat] = dateTime( Date,Hour )
+%UNTITLED2 此处显示有关此函数的摘要
+%   此处显示详细说明
+DateTimeValue=zeros(length(Date),1);
+DateTimeFloat=zeros(length(Date),1);
+for i=1:length(Date)
+    year = round(Date(i)/10000);
+    month = round(mod(Date(i),10000)/100);
+    day = round(mod(Date(i),100));
+    h = floor(Hour(i)*100);
+    m = floor(Hour(i)*10000);
+    DateTimeValue(i)= datenum(year,month,day,h,m,0);
+    DateTimeFloat(i)= Date(i)+Hour(i);
+end
+
+end
+

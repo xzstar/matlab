@@ -21,36 +21,56 @@
 % cursor=fetch(cursor);
 % data=cursor.Data;
 
-commodity = 'RB888';
-Freq = 'M15';
+commodity = 'ta';
+Freq = 'M30';
 %load data.mat;
-data =load('sr000_day.csv');
+futuresname='TA';
+futuresyear='6';
+futuresmonth='05';
+futuresperiod='1m';
+futuresfilename=strcat(futuresname,futuresyear,futuresmonth,'_',futuresperiod);
 
-Date=datenum(data(:,1));                %日期时间
-Open=data(:,2);               %开盘价
-High=data(:,3);               %最高价
-Low=data(:,4);                %最低价
-Close=data(:,5);              %收盘价
-Volume=data(:,6);             %成交量
-OpenInterest=data(:,7);       %持仓量
+data =load(strcat(futuresfilename,'.csv'));
+DATE_COL = 1;
+HOUR_COL = 2;
+OPEN_COL = 3;
+HIGH_COL = 4;
+LOW_COL = 5;
+CLOSE_COL = 6;
+VOL_COL = 7;
+HOLD_COL = 8;
+
+
+Date=data(:,DATE_COL);                %日期时间
+Hour=data(:,HOUR_COL);              %小时
+[DateTime,DateTimeFloat] = dateTime(Date,Hour); %日期时间格式
+Open=data(:,OPEN_COL);               %开盘价
+High=data(:,HIGH_COL);               %最高价
+Low=data(:,LOW_COL);                %最低价
+Close=data(:,CLOSE_COL);              %收盘价
+Volume=data(:,VOL_COL);             %成交量
+OpenInterest=data(:,HOLD_COL);       %持仓量
+
 
 %% --定义参数（常量）--
 
 %策略参数
-Slip=2;                                      %滑点
+Slip=1;                                      %滑点
 %BollLength=50;                               %布林线长度
 %Offset=1.25;                                 %布林线标准差倍数
 %ROCLength=30;                                %ROC的周期数
-Count = 4;
+Count = 8;
 
 
 %品种参数
 MinMove=1;                                    %商品的最小变动量
 PriceScale=1;                                 %商品的计数单位
-TradingUnits=10;                              %交易单位
+TradingUnits=5;                              %交易单位
 Lots=1;                                       %交易手数
 MarginRatio=0.07;                             %保证金率
-TradingCost=0.0003;                           %交易费用设为成交金额的万分之三
+TradingCostType = 1;                          %交易手续类型 1 金额 2 百分比           
+TradingCostRate=0.000053;                       %交易费用设为成交金额的万分之三
+TradingCostPrice = 1.62;                      %交易费用设为3.13元       
 RiskLess=0.035;                               %无风险收益率(计算夏普比率时需要)
 
 %% --定义变量--
@@ -81,12 +101,17 @@ CumRateOfReturn=zeros(length(data),1);         %累计收益率
 CostSeries=zeros(length(data),1);              %记录交易成本
 BackRatio=zeros(length(data),1);               %记录回测比例
 
+CalBar = zeros(length(data),3);
+CalBarHigh = zeros(length(data),1);
+CalBarLow = zeros(length(data),1);
+CalIndex = 1;
+    
 %记录资产变化变量
 LongMargin=zeros(length(data),1);              %多头保证金
 ShortMargin=zeros(length(data),1);             %空头保证金
-Cash=repmat(1e6,length(data),1);               %可用资金,初始资金为10W
-DynamicEquity=repmat(1e6,length(data),1);      %动态权益,初始资金为10W
-StaticEquity=repmat(1e6,length(data),1);       %静态权益,初始资金为10W
+Cash=repmat(2e4,length(data),1);               %可用资金,初始资金为10W
+DynamicEquity=repmat(2e4,length(data),1);      %动态权益,初始资金为10W
+StaticEquity=repmat(2e4,length(data),1);       %静态权益,初始资金为10W
 
 %% --计算布林带和ROC--
 %[UpperLine MidLine LowerLine]=BOLL(Close,BollLength,Offset,0);
@@ -98,9 +123,20 @@ StaticEquity=repmat(1e6,length(data),1);       %静态权益,初始资金为10W
 
 %% --策略仿真--
 PreviousPos = zeros(Count,1);
-firstOP = 0;
-for i=Count+1:length(data)
+% firstOP = 0;
+
+CalBarHigh(1) = High(1);
+CalBarLow(1) = Low(1);
+
+CalBar(1,1) = DateTimeFloat(1);
+CalBar(1,2) = High(1);
+CalBar(1,3) = Low(1);
+
+
+
+for i=2:length(data)
     
+    %重新计算多空调保证金 动静态权益以及可用资金
     if MarketPosition==0
         LongMargin(i)=0;                            %多头保证金
         ShortMargin(i)=0;                           %空头保证金
@@ -121,50 +157,84 @@ for i=Count+1:length(data)
         Cash(i)=DynamicEquity(i)-ShortMargin(i);
     end
     
+    isSameBarValue = isSameBar(Date(i-1),Date(i),Hour(i-1),Hour(i));
     
-    %开仓模块
-    PreviousPos = High(i-Count:i-1);
-    Highest = max(PreviousPos);
-    PreviousPos = Low(i-Count:i-1);
-    Lowest = min(PreviousPos);
-    
-    
-    if i == Count
-        if High(i)>Highest
-           firstOP = 1;
+    if isSameBarValue == true
+        if High(i)>CalBarHigh(CalIndex)
+            CalBarHigh(CalIndex) = High(i);
+             CalBar(CalIndex,2) = High(i);
         end
-        
-        if Low(i)<Lowest
-            firstOP = -1;
+        if Low(i)<CalBarLow(CalIndex)
+            CalBarLow(CalIndex) = Low(i);
+            CalBar(CalIndex,3) = Low(i);
         end
     else
-       firstOP = 0; 
+        CalIndex = CalIndex +1;
+        CalBarHigh(CalIndex) = High(i);
+        CalBarLow(CalIndex) = Low(i);
+        CalBar(CalIndex,1) = DateTimeFloat(i);
+        CalBar(CalIndex,2) = High(i);
+        CalBar(CalIndex,3) = Low(i);
     end
+    
+    %没有达到Count根K线的数据
+    if CalIndex <= Count
+        continue;
+    end
+    
+    %开仓模块
+%     PreviousPos = High(i-Count:i-1);
+%     Highest = max(PreviousPos);
+%     PreviousPos = Low(i-Count:i-1);
+%     Lowest = min(PreviousPos);
+    PreviousPos = CalBarHigh(CalIndex-Count:CalIndex-1);
+    Highest = max(PreviousPos);
+    PreviousPos = CalBarLow(CalIndex-Count:CalIndex-1);
+    Lowest = min(PreviousPos);
+    
+%     if i == Count
+%         if High(i)>Highest
+%            firstOP = 1;
+%         end
+%         
+%         if Low(i)<Lowest
+%             firstOP = -1;
+%         end
+%     else
+%        firstOP = 0; 
+%     end
     
     
     %开多头
-    if MarketPosition~=1 && (High(i)>Highest || firstOP == 1)
-    %if MarketPosition~=1 && RocValue(i-1)>0 && High(i)>=UpperLine(i-1)   %用i-1,避免未来函数
+    if MarketPosition~=1 && High(i)>Highest %|| firstOP == 1)
+        %if MarketPosition~=1 && RocValue(i-1)>0 && High(i)>=UpperLine(i-1)   %用i-1,避免未来函数
         %平空开多
         if MarketPosition==-1   
             MarketPosition=1;
             ShortMargin(i)=0;   %平空后空头保证金为0了
-            %MyEntryPrice(i)=UpperLine(i-1);
-            %if Open(i)>MyEntryPrice(i)    %考虑是否跳空
-            %    MyEntryPrice(i)=Open(i);
-            %end
-            MyEntryPrice(i) = Close(i);
+            MyEntryPrice(i) = Highest;
+            if Open(i)>MyEntryPrice(i)    %考虑是否跳空
+               MyEntryPrice(i)=Open(i);
+            end
             MyEntryPrice(i)=MyEntryPrice(i)+Slip*MinMove*PriceScale;%建仓价格(也是平空仓的价格)
             ClosePosNum=ClosePosNum+1;
             ClosePosPrice(ClosePosNum)=MyEntryPrice(i);%记录平仓价格
-            CloseDate(ClosePosNum)=Date(i);%记录平仓时间
+            CloseDate(ClosePosNum)= DateTime(i);%记录平仓时间
             OpenPosNum=OpenPosNum+1;
             OpenPosPrice(OpenPosNum)=MyEntryPrice(i);%记录开仓价格
-            OpenDate(OpenPosNum)=Date(i);%记录开仓时间
+            OpenDate(OpenPosNum)=DateTime(i);%记录开仓时间
             Type(OpenPosNum)=1;   %方向为多头
-            StaticEquity(i)=StaticEquity(i-1)+(OpenPosPrice(OpenPosNum-1)-ClosePosPrice(ClosePosNum))...
-                *TradingUnits*Lots-OpenPosPrice(OpenPosNum-1)*TradingUnits*Lots*TradingCost...
-                -ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;%平空仓时的静态权益
+%             StaticEquity(i)=StaticEquity(i-1)+(OpenPosPrice(OpenPosNum-1)-ClosePosPrice(ClosePosNum))...
+%                 *TradingUnits*Lots-OpenPosPrice(OpenPosNum-1)*TradingUnits*Lots*TradingCost...
+%                 -ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;%平空仓时的静态权益
+            %静态权益 = 上次静态权益+上次交易盈亏-买卖交易手续费
+            TradingCost = TradingCostPrice * 2;
+            if TradingCostType == 2
+                TradingCost = (OpenPosPrice(OpenPosNum-1)+ClosePosPrice(ClosePosNum))*TradingUnits*Lots*TradingCostRate;
+            end
+            StaticEquity(i)=StaticEquity(i-1)+(OpenPosPrice(OpenPosNum-1)-ClosePosPrice(ClosePosNum))*TradingUnits*Lots...
+                -TradingCost;%平空仓时的静态权益
+            %动态权益 = 静态权益+本次交易动态盈亏
             DynamicEquity(i)=StaticEquity(i)+(Close(i)-OpenPosPrice(OpenPosNum))*TradingUnits*Lots;
         end
         %空仓开多
@@ -174,11 +244,14 @@ for i=Count+1:length(data)
             %if Open(i)>MyEntryPrice(i)    %考虑是否跳空
             %    MyEntryPrice(i)=Open(i);
             %end
-            MyEntryPrice(i) = Close(i);
+            MyEntryPrice(i) = Highest;
+            if Open(i)>MyEntryPrice(i)    %考虑是否跳空
+               MyEntryPrice(i)=Open(i);
+            end
             MyEntryPrice(i)=MyEntryPrice(i)+Slip*MinMove*PriceScale;%建仓价格
             OpenPosNum=OpenPosNum+1;
             OpenPosPrice(OpenPosNum)=MyEntryPrice(i);%记录开仓价格
-            OpenDate(OpenPosNum)=Date(i);%记录开仓时间
+            OpenDate(OpenPosNum)=DateTime(i);%记录开仓时间
             Type(OpenPosNum)=1;   %方向为多头
             StaticEquity(i)=StaticEquity(i-1);
             DynamicEquity(i)=StaticEquity(i)+(Close(i)-OpenPosPrice(OpenPosNum))*TradingUnits*Lots;
@@ -189,7 +262,7 @@ for i=Count+1:length(data)
     
     %开空头
     %平多开空
-    if MarketPosition ~=-1 && (Low(i)<Lowest || firstOP == -1)
+    if MarketPosition ~=-1 && Low(i)<Lowest %|| firstOP == -1)
     %if MarketPosition~=-1 && RocValue(i-1)<0 && Low(i)<=LowerLine(i-1)
         if MarketPosition==1    
             MarketPosition=-1;
@@ -198,18 +271,27 @@ for i=Count+1:length(data)
             %if Open(i)<MyEntryPrice(i)
             %    MyEntryPrice(i)=Open(i);
             %end
-            MyEntryPrice(i) = Close(i);
+            
+            MyEntryPrice(i) = Lowest;
+            if Open(i)< MyEntryPrice(i)    %考虑是否跳空
+               MyEntryPrice(i)=Open(i);
+            end
+            
+            %MyEntryPrice(i) = Close(i);
             MyEntryPrice(i)=MyEntryPrice(i)-Slip*MinMove*PriceScale;%建仓价格(也是平多仓的价格)
             ClosePosNum=ClosePosNum+1;
             ClosePosPrice(ClosePosNum)=MyEntryPrice(i);%记录平仓价格
-            CloseDate(ClosePosNum)=Date(i);%记录平仓时间
+            CloseDate(ClosePosNum)=DateTime(i);%记录平仓时间
             OpenPosNum=OpenPosNum+1;            
             OpenPosPrice(OpenPosNum)=MyEntryPrice(i);%记录开仓价格
-            OpenDate(OpenPosNum)=Date(i);%记录开仓时间
+            OpenDate(OpenPosNum)=DateTime(i);%记录开仓时间
             Type(OpenPosNum)=-1;   %方向为空头
-            StaticEquity(i)=StaticEquity(i-1)+(ClosePosPrice(ClosePosNum)-OpenPosPrice(OpenPosNum-1))...
-                *TradingUnits*Lots-OpenPosPrice(OpenPosNum-1)*TradingUnits*Lots*TradingCost...
-                -ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;%平多仓时的静态权益，算法参考TB
+            TradingCost = TradingCostPrice * 2;
+            if TradingCostType == 2
+                TradingCost = (OpenPosPrice(OpenPosNum-1)+ClosePosPrice(ClosePosNum))*TradingUnits*Lots*TradingCostRate;
+            end
+            StaticEquity(i)=StaticEquity(i-1)+(ClosePosPrice(ClosePosNum)-OpenPosPrice(OpenPosNum-1))*TradingUnits*Lots...
+                -TradingCost;%平多仓时的静态权益，算法参考TB
             DynamicEquity(i)=StaticEquity(i)+(OpenPosPrice(OpenPosNum)-Close(i))*TradingUnits*Lots;
         end
         %空仓开空
@@ -219,11 +301,16 @@ for i=Count+1:length(data)
             %if Open(i)<MyEntryPrice(i)
             %    MyEntryPrice(i)=Open(i);
             %end
-            MyEntryPrice(i) = Close(i);
+            %MyEntryPrice(i) = Close(i);
+            MyEntryPrice(i) = Lowest;
+            if Open(i)< MyEntryPrice(i)    %考虑是否跳空
+               MyEntryPrice(i)=Open(i);
+            end
+            
             MyEntryPrice(i)=MyEntryPrice(i)-Slip*MinMove*PriceScale;
             OpenPosNum=OpenPosNum+1;
             OpenPosPrice(OpenPosNum)=MyEntryPrice(i);
-            OpenDate(OpenPosNum)=Date(i);%记录开仓时间
+            OpenDate(OpenPosNum)=DateTime(i);%记录开仓时间
             Type(OpenPosNum)=-1;   %方向为空头
             StaticEquity(i)=StaticEquity(i-1);
             DynamicEquity(i)=StaticEquity(i)+(OpenPosPrice(OpenPosNum)-Close(i))*TradingUnits*Lots;
@@ -240,10 +327,13 @@ for i=Count+1:length(data)
             LongMargin(i)=0; 
             ClosePosNum=ClosePosNum+1;           
             ClosePosPrice(ClosePosNum)=Close(i);%记录平仓价格
-            CloseDate(ClosePosNum)=Date(i);%记录平仓时间
+            CloseDate(ClosePosNum)=DateTime(i);%记录平仓时间
+            TradingCost = TradingCostPrice * 2;
+            if TradingCostType == 2
+                TradingCost = (OpenPosPrice(OpenPosNum)+ClosePosPrice(ClosePosNum))*TradingUnits*Lots*TradingCostRate;
+            end
             StaticEquity(i)=StaticEquity(i-1)+(ClosePosPrice(ClosePosNum)-OpenPosPrice(OpenPosNum))...
-                *TradingUnits*Lots-OpenPosPrice(OpenPosNum)*TradingUnits*Lots*TradingCost...
-                -ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;%平多仓时的静态权益，算法参考TB
+                *TradingUnits*Lots-TradingCost;%平多仓时的静态权益，算法参考TB
             DynamicEquity(i)=StaticEquity(i);%空仓时动态权益和静态权益相等
             Cash(i)=DynamicEquity(i); %空仓时可用资金等于动态权益
         end
@@ -253,10 +343,13 @@ for i=Count+1:length(data)
             ShortMargin(i)=0;
             ClosePosNum=ClosePosNum+1;
             ClosePosPrice(ClosePosNum)=Close(i);
-            CloseDate(ClosePosNum)=Date(i);
+            CloseDate(ClosePosNum)=DateTime(i);
+            TradingCost = TradingCostPrice * 2;
+            if TradingCostType == 2
+                TradingCost = (OpenPosPrice(OpenPosNum)+ClosePosPrice(ClosePosNum))*TradingUnits*Lots*TradingCostRate;
+            end
             StaticEquity(i)=StaticEquity(i-1)+(OpenPosPrice(OpenPosNum)-ClosePosPrice(ClosePosNum))...
-                *TradingUnits*Lots-OpenPosPrice(OpenPosNum)*TradingUnits*Lots*TradingCost...
-                -ClosePosPrice(ClosePosNum)*TradingUnits*Lots*TradingCost;%平空仓时的静态权益，算法参考TB
+                *TradingUnits*Lots-TradingCost;%平空仓时的静态权益，算法参考TB
             DynamicEquity(i)=StaticEquity(i);%空仓时动态权益和静态权益相等
             Cash(i)=DynamicEquity(i); %空仓时可用资金等于动态权益
         end
@@ -272,7 +365,12 @@ RecLength=ClosePosNum;%记录交易长度
 for i=1:RecLength
 
     %交易成本(建仓+平仓)
-    CostSeries(i)=OpenPosPrice(i)*TradingUnits*Lots*TradingCost+ClosePosPrice(i)*TradingUnits*Lots*TradingCost;
+    TradingCost = TradingCostPrice * 2;
+    if TradingCostType == 2
+        TradingCost = (OpenPosPrice(OpenPosNum)+ClosePosPrice(ClosePosNum))*TradingUnits*Lots*TradingCostRate;
+    end
+            
+    CostSeries(i)=TradingCost;
     
     %净利润
     %多头建仓时
@@ -564,15 +662,15 @@ TradeSum{RowNum,4} = CostShort;
 RowNum = 2;
 ColNum = 6;
 TradeSum{RowNum,6} = '测试时间范围';
-TradeSum{RowNum,7} = ['[',datestr(Date(1),'yyyy-mm-dd HH:MM:SS'),']'];
+TradeSum{RowNum,7} = ['[',datestr(DateTime(1),'yyyy-mm-dd HH:MM:SS'),']'];
 TradeSum{RowNum,8} = '--';
-TradeSum{RowNum,9} = ['[',datestr(Date(end),'yyyy-mm-dd HH:MM:SS'),']'];
+TradeSum{RowNum,9} = ['[',datestr(DateTime(end),'yyyy-mm-dd HH:MM:SS'),']'];
 
 %总交易时间
 RowNum = 3;
 ColNum = 1;
 TradeSum{RowNum,6} = '测试天数';
-TradeSum{RowNum,7} = round(Date(end)-Date(1));
+TradeSum{RowNum,7} = round(DateTime(end)-DateTime(1));
 
 %持仓时间比例
 RowNum = 4;
@@ -581,7 +679,7 @@ TradeSum{RowNum,6} = '持仓时间比例';
 TradeSum{RowNum,7} = length(pos(pos~=0))/length(data);
 
 %持仓时间
-HoldingDays=round(round(Date(end)-Date(1))*(length(pos(pos~=0))/length(data)));%持仓时间
+HoldingDays=round(round(DateTime(end)-DateTime(1))*(length(pos(pos~=0))/length(DateTime)));%持仓时间
 RowNum = 5;
 ColNum = 1;
 TradeSum{RowNum,6} = '持仓时间(天)';
@@ -660,7 +758,7 @@ if ~isdir(dirPath)
     mkdir(dirPath);
 end
 
-filename = '测试报告.xlsx';
+filename = strcat(futuresfilename,'测试报告.xlsx');
 filePath = [cd,'\Report\',filename];
 if exist(filePath,'file')
     delete(filePath);
@@ -700,7 +798,7 @@ RowNum = 1;
 ColNum = 5;
 TradeRec{1, ColNum} = '建仓时间';
 Len = length(1:RecLength);
-TradeRec(2:Len+1, ColNum) = cellstr(datestr(OpenDate(1:RecLength),'yyyy-mm-dd HH:MM:SS'));
+TradeRec(2:Len+1, ColNum) =  cellstr(datestr(OpenDate(1:RecLength),'yyyy-mm-dd HH:MM:SS'));%cellstr(num2str(OpenDate(1:RecLength),'%10.6f'));%
 
 RowNum = 1;
 ColNum = 6;
@@ -712,7 +810,7 @@ RowNum = 1;
 ColNum = 7;
 TradeRec{1, ColNum} = '平仓时间';
 Len = length(1:RecLength);
-TradeRec(2:Len+1, ColNum) = cellstr(datestr(CloseDate(1:RecLength),'yyyy-mm-dd HH:MM:SS'));
+TradeRec(2:Len+1, ColNum) =cellstr(datestr(CloseDate(1:RecLength),'yyyy-mm-dd HH:MM:SS'));% cellstr(num2str(CloseDate(1:RecLength),'%10.6f'));%
 
 RowNum = 1;
 ColNum = 8;
@@ -804,7 +902,7 @@ TradeMoney(7:Len+6, ColNum) = mat2cell( (1:length(data))', ones(Len,1) );
 RowNum = 5;
 ColNum = 2;
 TradeMoney{6, ColNum} = '时间';
-TradeMoney(7:Len+6, ColNum) = cellstr(datestr(Date,'yyyy-mm-dd HH:MM:SS'));
+TradeMoney(7:Len+6, ColNum) = cellstr(datestr(DateTime,'yyyy-mm-dd HH:MM:SS'));
 
 RowNum = 5;
 ColNum = 3;
@@ -899,11 +997,11 @@ saveas(gcf, [dirPath, '3交易盈亏分布图.png']);
 %权益曲线
 scrsz = get(0,'ScreenSize');
 figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
-plot(Date,DynamicEquity,'r','LineWidth',2);
+plot(DateTime,DynamicEquity,'r','LineWidth',2);
 hold on;
-area(Date,DynamicEquity,'FaceColor','g');
+area(DateTime,DynamicEquity,'FaceColor','g');
 datetick('x',29);
-axis([Date(1) Date(end) min(DynamicEquity) max(DynamicEquity)]);
+axis([DateTime(1) DateTime(end) min(DynamicEquity) max(DynamicEquity)]);
 xlabel('时间');
 ylabel('动态权益(元)');
 title('权益曲线图');
@@ -915,17 +1013,17 @@ saveas(gcf, [dirPath, '4权益曲线图.png']);
 scrsz = get(0,'ScreenSize');
 figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
 subplot(2,1,1);
-plot(Date,pos,'g');
+plot(DateTime,pos,'g');
 datetick('x',29);
-axis([Date(1) Date(end) min(pos) max(pos)]);
+axis([DateTime(1) DateTime(end) min(pos) max(pos)]);
 xlabel('时间');
 ylabel('仓位');
 title('仓位状态(1-多头 0-不持仓 -1-空头)');
 
 subplot(2,1,2);
-plot(Date,BackRatio,'b');
+plot(DateTime,BackRatio,'b');
 datetick('x',29);
-axis([Date(1) Date(end) min(BackRatio) max(BackRatio)]);
+axis([DateTime(1) DateTime(end) min(BackRatio) max(BackRatio)]);
 xlabel('时间');
 ylabel('回撤比例');
 title(strcat('回撤比例（初始资金为：',num2str(DynamicEquity(1)),'，开仓比例：',num2str(max(max(LongMargin),max(ShortMargin))/DynamicEquity(1)*100),'%',...
@@ -955,34 +1053,34 @@ saveas(gcf, [dirPath, '6多空对比饼图.png']);
 % close all;
 
 %% 收益多周期统计
-scrsz = get(0,'ScreenSize');
-figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
-subplot(2,2,1);
-bar(Daily(2:end),DailyRet,'r','EdgeColor','r');
-datetick('x',29);
-axis([min(Daily(2:end)) max(Daily(2:end)) min(DailyRet) max(DailyRet)]);
-xlabel('时间');
-ylabel('日收益率');
-
-subplot(2,2,2);
-bar(Weekly(2:end),WeeklyRet,'r','EdgeColor','r');
-datetick('x',29);
-axis([min(Weekly(2:end)) max(Weekly(2:end)) min(WeeklyRet) max(WeeklyRet)]);
-xlabel('时间');
-ylabel('周收益率');
-
-subplot(2,2,3);
-bar(Monthly(2:end),MonthlyRet,'r','EdgeColor','r');
-datetick('x',28);
-axis([min(Monthly(2:end)) max(Monthly(2:end)) min(MonthlyRet) max(MonthlyRet)]);
-xlabel('时间');
-ylabel('月收益率');
-
-subplot(2,2,4);
-bar(Yearly(2:end),YearlyRet,'r','EdgeColor','r');
-datetick('x',10);
-axis([min(Yearly(2:end)) max(Yearly(2:end)) min(YearlyRet) max(YearlyRet)]);
-xlabel('时间');
-ylabel('年收益率');
-saveas(gcf, [dirPath, '7收益多周期统计.png']);
+% scrsz = get(0,'ScreenSize');
+% figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
+% subplot(2,2,1);
+% bar(Daily(2:end),DailyRet,'r','EdgeColor','r');
+% datetick('x',29);
+% axis([min(Daily(2:end)) max(Daily(2:end)) min(DailyRet) max(DailyRet)]);
+% xlabel('时间');
+% ylabel('日收益率');
+% 
+% subplot(2,2,2);
+% bar(Weekly(2:end),WeeklyRet,'r','EdgeColor','r');
+% datetick('x',29);
+% axis([min(Weekly(2:end)) max(Weekly(2:end)) min(WeeklyRet) max(WeeklyRet)]);
+% xlabel('时间');
+% ylabel('周收益率');
+% 
+% subplot(2,2,3);
+% bar(Monthly(2:end),MonthlyRet,'r','EdgeColor','r');
+% datetick('x',28);
+% axis([min(Monthly(2:end)) max(Monthly(2:end)) min(MonthlyRet) max(MonthlyRet)]);
+% xlabel('时间');
+% ylabel('月收益率');
+% 
+% subplot(2,2,4);
+% bar(Yearly(2:end),YearlyRet,'r','EdgeColor','r');
+% datetick('x',10);
+% axis([min(Yearly(2:end)) max(Yearly(2:end)) min(YearlyRet) max(YearlyRet)]);
+% xlabel('时间');
+% ylabel('年收益率');
+% saveas(gcf, [dirPath, '7收益多周期统计.png']);
 % close all;

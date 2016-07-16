@@ -84,9 +84,9 @@ BackRatio=zeros(length(data),1);               %记录回测比例
 %记录资产变化变量
 LongMargin=zeros(length(data),1);              %多头保证金
 ShortMargin=zeros(length(data),1);             %空头保证金
-Cash=repmat(1e4,length(data),1);               %可用资金,初始资金为10W
-DynamicEquity=repmat(1e4,length(data),1);      %动态权益,初始资金为10W
-StaticEquity=repmat(1e4,length(data),1);       %静态权益,初始资金为10W
+Cash=repmat(1e6,length(data),1);               %可用资金,初始资金为10W
+DynamicEquity=repmat(1e6,length(data),1);      %动态权益,初始资金为10W
+StaticEquity=repmat(1e6,length(data),1);       %静态权益,初始资金为10W
 
 %% --计算布林带和ROC--
 %[UpperLine MidLine LowerLine]=BOLL(Close,BollLength,Offset,0);
